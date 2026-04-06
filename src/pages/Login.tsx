@@ -7,12 +7,16 @@ import { Label } from "@/components/ui/label";
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock login
-    navigate("/dashboard");
+    if (email === "patrickgigilas@yahoo.com.br" && password === "1357") {
+      navigate("/dashboard");
+    } else {
+      setError("E-mail ou senha incorretos.");
+    }
   };
 
   return (
@@ -31,12 +35,9 @@ export default function Login() {
             <Label htmlFor="password">Senha</Label>
             <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
           </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" className="w-full">Entrar</Button>
         </form>
-        <p className="text-center text-sm text-muted-foreground mt-4">
-          Não tem conta?{" "}
-          <Link to="/signup" className="text-primary hover:underline">Criar conta</Link>
-        </p>
       </div>
     </div>
   );

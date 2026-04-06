@@ -8,19 +8,17 @@ export function Header() {
         <Link to="/" className="text-xl font-bold text-foreground">
           tester
         </Link>
-        <nav className="hidden md:flex items-center gap-6">
+        <nav className="flex items-center gap-4">
+          <Link to="/sobre" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            Sobre nós
+          </Link>
           <Link to="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
             Preços
           </Link>
-        </nav>
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" asChild>
+          <Button size="sm" asChild>
             <Link to="/login">Entrar</Link>
           </Button>
-          <Button size="sm" asChild>
-            <Link to="/signup">Começar agora</Link>
-          </Button>
-        </div>
+        </nav>
       </div>
     </header>
   );

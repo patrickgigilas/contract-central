@@ -14,16 +14,310 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      companies: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      contracts: {
+        Row: {
+          ai_extracted_data: Json | null
+          category: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          expiration_date: string | null
+          file_url: string | null
+          folder_id: string | null
+          id: string
+          signature_date: string | null
+          status: Database["public"]["Enums"]["contract_status"]
+          supplier: string | null
+          title: string
+          value: number | null
+        }
+        Insert: {
+          ai_extracted_data?: Json | null
+          category?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          expiration_date?: string | null
+          file_url?: string | null
+          folder_id?: string | null
+          id?: string
+          signature_date?: string | null
+          status?: Database["public"]["Enums"]["contract_status"]
+          supplier?: string | null
+          title: string
+          value?: number | null
+        }
+        Update: {
+          ai_extracted_data?: Json | null
+          category?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          expiration_date?: string | null
+          file_url?: string | null
+          folder_id?: string | null
+          id?: string
+          signature_date?: string | null
+          status?: Database["public"]["Enums"]["contract_status"]
+          supplier?: string | null
+          title?: string
+          value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contracts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contracts_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "folders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      folder_permissions: {
+        Row: {
+          can_read: boolean
+          can_write: boolean
+          company_id: string
+          folder_id: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          can_read?: boolean
+          can_write?: boolean
+          company_id: string
+          folder_id: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          can_read?: boolean
+          can_write?: boolean
+          company_id?: string
+          folder_id?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "folder_permissions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folder_permissions_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "folders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      folders: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          parent_id: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "folders_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folders_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "folders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integrations: {
+        Row: {
+          api_key: string | null
+          api_secret: string | null
+          company_id: string
+          created_at: string
+          email_login: string | null
+          id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+        }
+        Insert: {
+          api_key?: string | null
+          api_secret?: string | null
+          company_id: string
+          created_at?: string
+          email_login?: string | null
+          id?: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+        }
+        Update: {
+          api_key?: string | null
+          api_secret?: string | null
+          company_id?: string
+          created_at?: string
+          email_login?: string | null
+          id?: string
+          provider?: Database["public"]["Enums"]["integration_provider"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integrations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          email: string
+          full_name: string
+          id: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subscriptions: {
+        Row: {
+          company_id: string
+          created_at: string
+          current_period_end: string | null
+          id: string
+          plan: Database["public"]["Enums"]["plan_type"]
+          status: Database["public"]["Enums"]["subscription_status"]
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          current_period_end?: string | null
+          id?: string
+          plan?: Database["public"]["Enums"]["plan_type"]
+          status?: Database["public"]["Enums"]["subscription_status"]
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          current_period_end?: string | null
+          id?: string
+          plan?: Database["public"]["Enums"]["plan_type"]
+          status?: Database["public"]["Enums"]["subscription_status"]
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_company_id: { Args: never; Returns: string }
+      get_user_role: {
+        Args: never
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
+      has_folder_permission: {
+        Args: { _folder_id: string; _permission: string }
+        Returns: boolean
+      }
+      is_admin: { Args: never; Returns: boolean }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "finance" | "legal" | "commercial" | "viewer" | "none"
+      contract_status: "active" | "expired" | "cancelled"
+      integration_provider: "docusign" | "adobe_sign" | "clicksign" | "d4sign"
+      plan_type: "basic" | "pro" | "enterprise"
+      subscription_status: "active" | "inactive" | "past_due"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +444,12 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "finance", "legal", "commercial", "viewer", "none"],
+      contract_status: ["active", "expired", "cancelled"],
+      integration_provider: ["docusign", "adobe_sign", "clicksign", "d4sign"],
+      plan_type: ["basic", "pro", "enterprise"],
+      subscription_status: ["active", "inactive", "past_due"],
+    },
   },
 } as const

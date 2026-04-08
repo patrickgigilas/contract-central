@@ -15,18 +15,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!session) return <Navigate to="/login" replace />;
 
   if (subscription && subscription.status !== "active") {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="text-center max-w-md">
-          <h1 className="text-2xl font-bold mb-2">Assinatura inativa</h1>
-          <p className="text-muted-foreground mb-4">Sua assinatura está inativa. Entre em contato para reativar.</p>
-          <a href="https://wa.me/5519997950007" target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm">
-            Falar com suporte
-          </a>
-        </div>
-      </div>
-    );
+    return <Navigate to="/pricing" replace />;
+  }
+
+  if (!subscription) {
+    return <Navigate to="/pricing" replace />;
   }
 
   return <>{children}</>;

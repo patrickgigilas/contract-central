@@ -9,12 +9,14 @@ import {
 } from "@/components/ui/dialog";
 import {
   FileText, FolderOpen, Plus, Upload, Mail, Settings, CreditCard,
-  LogOut, ChevronRight, Menu, Trash2, Eye, LayoutDashboard, Sparkles,
+  LogOut, ChevronRight, Menu, Trash2, Eye, LayoutDashboard, Sparkles, Copy,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import type { Tables, Enums } from "@/integrations/supabase/types";
+
+const EXTERNAL_SUPABASE_URL = "https://mwvbxojvmehbmmwhblta.supabase.co";
 
 type Folder = Tables<"folders">;
 type Contract = Tables<"contracts">;
@@ -29,6 +31,14 @@ const statusColors: Record<string, string> = {
 const statusLabels: Record<string, string> = {
   active: "Ativo", expired: "Vencido", cancelled: "Cancelado",
 };
+
+const LoadingSkeleton = () => (
+  <div className="space-y-3">
+    <div className="h-16 rounded-lg bg-muted animate-pulse" />
+    <div className="h-16 rounded-lg bg-muted animate-pulse" />
+    <div className="h-16 rounded-lg bg-muted animate-pulse" />
+  </div>
+);
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -95,30 +105,44 @@ export default function Dashboard() {
 /* ---- Dashboard Overview ---- */
 function DashboardView() {
   const { profile } = useAuth();
-  const [stats, setStats] = useState({ active: 0, expiring: 0, expired: 0, total: 0 });
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!profile?.company_id) return;
     const load = async () => {
-      const { data } = await supabase.from("contracts").select("status, expiration_date").eq("company_id", profile.company_id!);
-      if (!data) return;
-      const now = new Date();
-      const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-      setStats({
-        total: data.length,
-        active: data.filter(c => c.status === "active").length,
-        expired: data.filter(c => c.status === "expired").length,
-        expiring: data.filter(c => c.status === "active" && c.expiration_date && new Date(c.expiration_date) <= in30).length,
-      });
+      setLoading(true);
+      // Try dashboard_summary view first, fallback to manual calc
+      const { data, error } = await supabase.from("dashboard_summary" as any).select("*").eq("company_id", profile.company_id!).single();
+      if (data && !error) {
+        setStats(data);
+      } else {
+        // Fallback: manual calculation
+        const { data: contracts } = await supabase.from("contracts").select("status, expiration_date, value").eq("company_id", profile.company_id!);
+        if (contracts) {
+          const now = new Date();
+          const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+          const active = contracts.filter(c => c.status === "active");
+          setStats({
+            active_contracts: active.length,
+            expired_contracts: contracts.filter(c => c.status === "expired").length,
+            expiring_soon: active.filter(c => c.expiration_date && new Date(c.expiration_date) <= in30).length,
+            total_value: active.reduce((sum, c) => sum + (Number(c.value) || 0), 0),
+          });
+        }
+      }
+      setLoading(false);
     };
     load();
   }, [profile?.company_id]);
 
+  if (loading) return <div><h2 className="text-lg font-semibold mb-6">Visão geral</h2><LoadingSkeleton /></div>;
+
   const cards = [
-    { label: "Total de contratos", value: stats.total, color: "text-foreground" },
-    { label: "Ativos", value: stats.active, color: "text-green-600" },
-    { label: "Vencendo em 30 dias", value: stats.expiring, color: "text-yellow-600" },
-    { label: "Vencidos", value: stats.expired, color: "text-red-600" },
+    { label: "Contratos ativos", value: stats?.active_contracts ?? 0, color: "text-green-600" },
+    { label: "Vencendo em breve", value: stats?.expiring_soon ?? 0, color: "text-yellow-600" },
+    { label: "Vencidos", value: stats?.expired_contracts ?? 0, color: "text-red-600" },
+    { label: "Valor total ativo", value: `R$ ${Number(stats?.total_value ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, color: "text-blue-600" },
   ];
 
   return (
@@ -141,15 +165,15 @@ function ContractsView() {
   const { profile, isAdmin } = useAuth();
   const { toast } = useToast();
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [contracts, setContracts] = useState<(Contract & { expiration_alert?: string })[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Upload form state
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadSupplier, setUploadSupplier] = useState("");
   const [uploadValue, setUploadValue] = useState("");
@@ -159,6 +183,7 @@ function ContractsView() {
   const [uploadExpDate, setUploadExpDate] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [aiExtracting, setAiExtracting] = useState(false);
 
   const companyId = profile?.company_id;
 
@@ -171,10 +196,26 @@ function ContractsView() {
   const loadContracts = async () => {
     if (!companyId) return;
     const { data } = await supabase.from("contracts").select("*").eq("company_id", companyId).order("created_at", { ascending: false });
-    if (data) setContracts(data);
+    if (data) {
+      // Calculate expiration_alert client-side
+      const now = new Date();
+      const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const enriched = data.map((c: any) => ({
+        ...c,
+        expiration_alert: c.status === "active" && c.expiration_date && new Date(c.expiration_date) <= in30 && new Date(c.expiration_date) >= now ? "expiring_soon" : null,
+      }));
+      setContracts(enriched);
+    }
   };
 
-  useEffect(() => { loadFolders(); loadContracts(); }, [companyId]);
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      await Promise.all([loadFolders(), loadContracts()]);
+      setLoading(false);
+    };
+    load();
+  }, [companyId]);
 
   const currentFolders = folders.filter(f => f.parent_id === currentFolder);
   const currentContracts = contracts.filter(c => c.folder_id === currentFolder);
@@ -201,11 +242,13 @@ function ContractsView() {
   };
 
   const deleteFolder = async (id: string) => {
+    if (!window.confirm("Excluir esta pasta? Todos os contratos dentro serão removidos.")) return;
     await supabase.from("folders").delete().eq("id", id);
     loadFolders(); loadContracts();
   };
 
   const deleteContract = async (id: string) => {
+    if (!window.confirm("Excluir este contrato?")) return;
     await supabase.from("contracts").delete().eq("id", id);
     loadContracts();
   };
@@ -247,6 +290,50 @@ function ContractsView() {
     resetUpload(); setUploadOpen(false); loadContracts();
   };
 
+  const handleAiExtract = async () => {
+    if (!uploadFile) {
+      toast({ title: "Erro", description: "Anexe um PDF primeiro.", variant: "destructive" });
+      return;
+    }
+    setAiExtracting(true);
+    try {
+      const toBase64 = (file: File): Promise<string> =>
+        new Promise((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve((r.result as string).split(",")[1]);
+          r.readAsDataURL(file);
+        });
+      const base64 = await toBase64(uploadFile);
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${EXTERNAL_SUPABASE_URL}/functions/v1/ai-extract-contract`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session?.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ contract_text: base64 }),
+      });
+      const data = await res.json();
+      if (res.ok && data.extracted) {
+        const e = data.extracted;
+        if (e.title) setUploadTitle(e.title);
+        if (e.supplier) setUploadSupplier(e.supplier);
+        if (e.value) setUploadValue(String(e.value));
+        if (e.category) setUploadCategory(e.category);
+        if (e.signature_date) setUploadSignDate(e.signature_date);
+        if (e.expiration_date) setUploadExpDate(e.expiration_date);
+        toast({ title: "Sucesso", description: "Dados extraídos com sucesso! Revise e confirme." });
+      } else {
+        toast({ title: "Erro", description: "Não foi possível extrair os dados. Preencha manualmente.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Erro", description: "Não foi possível extrair os dados. Preencha manualmente.", variant: "destructive" });
+    }
+    setAiExtracting(false);
+  };
+
+  if (loading) return <LoadingSkeleton />;
+
   return (
     <>
       <nav className="flex items-center gap-1 text-sm mb-4">
@@ -270,6 +357,10 @@ function ContractsView() {
               <Button onClick={createFolder}>Criar</Button>
             </DialogContent>
           </Dialog>
+        )}
+
+        {!currentFolder && (
+          <p className="text-sm text-muted-foreground py-2">Selecione ou crie uma pasta para fazer upload de contratos.</p>
         )}
 
         {currentFolder && (
@@ -309,8 +400,9 @@ function ContractsView() {
                     {uploadFile ? uploadFile.name : "Anexar PDF"}
                   </Button>
                 </div>
-                <Button variant="outline" size="sm" className="w-full" disabled>
-                  <Sparkles className="h-4 w-4 mr-2" /> Preencher automaticamente com IA (em breve)
+                <Button variant="outline" size="sm" className="w-full" onClick={handleAiExtract} disabled={aiExtracting}>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  {aiExtracting ? "Extraindo dados..." : "Preencher automaticamente com IA"}
                 </Button>
               </div>
               <Button onClick={handleUpload} className="mt-2" disabled={uploading}>
@@ -360,6 +452,7 @@ function ContractsView() {
                 <th className="text-left p-3 font-medium text-muted-foreground hidden md:table-cell">Valor</th>
                 <th className="text-left p-3 font-medium text-muted-foreground hidden sm:table-cell">Vencimento</th>
                 <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+                <th className="text-left p-3 font-medium text-muted-foreground">Alerta</th>
                 <th className="p-3 w-20"></th>
               </tr>
             </thead>
@@ -377,6 +470,11 @@ function ContractsView() {
                   <td className="p-3 text-muted-foreground hidden sm:table-cell">{c.expiration_date || "—"}</td>
                   <td className="p-3">
                     <Badge variant="secondary" className={statusColors[c.status]}>{statusLabels[c.status]}</Badge>
+                  </td>
+                  <td className="p-3">
+                    {c.expiration_alert === "expiring_soon" && (
+                      <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">⚠ Vence em breve</Badge>
+                    )}
                   </td>
                   <td className="p-3">
                     <div className="flex items-center gap-1 justify-end">
@@ -424,8 +522,9 @@ function SettingsView() {
   const [permissions, setPermissions] = useState<FolderPermission[]>([]);
   const [profiles, setProfiles] = useState<Tables<"profiles">[]>([]);
   const [integrations, setIntegrations] = useState<Tables<"integrations">[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // New permission form
+  // Permission form
   const [permRole, setPermRole] = useState<Enums<"app_role">>("viewer");
   const [permFolder, setPermFolder] = useState("");
   const [permRead, setPermRead] = useState(true);
@@ -437,9 +536,21 @@ function SettingsView() {
   const [intSecret, setIntSecret] = useState("");
   const [intEmail, setIntEmail] = useState("");
 
+  // Invite form
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("viewer");
+  const [invites, setInvites] = useState<any[]>([]);
+
+  // Email slug
+  const [emailSlug, setEmailSlug] = useState("");
+
+  // Email connections
+  const [emailConns, setEmailConns] = useState<any[]>([]);
+
   useEffect(() => {
     if (!companyId) return;
     const load = async () => {
+      setLoading(true);
       const [f, p, pr, i] = await Promise.all([
         supabase.from("folders").select("*").eq("company_id", companyId),
         supabase.from("folder_permissions").select("*").eq("company_id", companyId),
@@ -450,6 +561,26 @@ function SettingsView() {
       if (p.data) setPermissions(p.data);
       if (pr.data) setProfiles(pr.data);
       if (i.data) setIntegrations(i.data);
+
+      // Load invites
+      try {
+        const { data: inv } = await supabase.from("invites" as any).select("*").eq("company_id", companyId).order("created_at", { ascending: false });
+        if (inv) setInvites(inv);
+      } catch {}
+
+      // Load email slug
+      try {
+        const { data: company } = await supabase.from("companies").select("*").eq("id", companyId).single();
+        if (company && (company as any).email_slug) setEmailSlug((company as any).email_slug);
+      } catch {}
+
+      // Load email connections
+      try {
+        const { data: ec } = await supabase.from("email_connections" as any).select("*").eq("company_id", companyId);
+        if (ec) setEmailConns(ec);
+      } catch {}
+
+      setLoading(false);
     };
     load();
   }, [companyId]);
@@ -485,9 +616,33 @@ function SettingsView() {
     setIntegrations(integrations.filter(i => i.id !== id));
   };
 
+  const sendInvite = async () => {
+    if (!inviteEmail.trim() || !companyId) return;
+    const { error } = await supabase.from("invites" as any).insert({
+      company_id: companyId, email: inviteEmail, role: inviteRole, invited_by: profile?.id,
+    } as any);
+    if (error) { toast({ title: "Erro", description: error.message, variant: "destructive" }); return; }
+    toast({ title: "Sucesso", description: `Convite enviado para ${inviteEmail}` });
+    setInviteEmail("");
+    const { data } = await supabase.from("invites" as any).select("*").eq("company_id", companyId).order("created_at", { ascending: false });
+    if (data) setInvites(data);
+  };
+
+  const cancelInvite = async (id: string) => {
+    await supabase.from("invites" as any).delete().eq("id", id);
+    setInvites(invites.filter(i => i.id !== id));
+  };
+
+  const removeEmailConn = async (id: string) => {
+    await supabase.from("email_connections" as any).delete().eq("id", id);
+    setEmailConns(emailConns.filter(c => c.id !== id));
+  };
+
   const roleLabels: Record<string, string> = {
     admin: "Admin", finance: "Financeiro", legal: "Jurídico", commercial: "Comercial", viewer: "Visualizador", none: "Sem acesso",
   };
+
+  if (loading) return <LoadingSkeleton />;
 
   return (
     <div className="max-w-3xl space-y-8">
@@ -513,6 +668,118 @@ function SettingsView() {
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      {/* Invite users */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4">Convidar usuários</h2>
+        <div className="border rounded-lg p-4 mb-4 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="E-mail do convidado" className="sm:col-span-1" />
+            <Select value={inviteRole} onValueChange={setInviteRole}>
+              <SelectTrigger><SelectValue placeholder="Papel" /></SelectTrigger>
+              <SelectContent>
+                {["finance", "legal", "commercial", "viewer"].map(r => (
+                  <SelectItem key={r} value={r}>{roleLabels[r]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" onClick={sendInvite}>Convidar</Button>
+          </div>
+        </div>
+        {invites.length > 0 && (
+          <div className="border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/50">
+                <tr>
+                  <th className="text-left p-3 font-medium text-muted-foreground">E-mail</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground">Papel</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground">Expira em</th>
+                  <th className="p-3 w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {invites.map((inv: any) => (
+                  <tr key={inv.id} className="border-t">
+                    <td className="p-3 text-foreground">{inv.email}</td>
+                    <td className="p-3"><Badge variant="secondary">{roleLabels[inv.role] || inv.role}</Badge></td>
+                    <td className="p-3 text-muted-foreground">{inv.expires_at ? new Date(inv.expires_at).toLocaleDateString("pt-BR") : "—"}</td>
+                    <td className="p-3">
+                      <button onClick={() => cancelInvite(inv.id)} className="text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Email reception */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4">Recebimento por email</h2>
+        <div className="border rounded-lg p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">Encaminhe contratos assinados para o endereço abaixo e eles serão importados automaticamente:</p>
+          <div className="flex items-center gap-2">
+            <div className="bg-secondary rounded-md p-3 text-sm font-mono text-foreground flex-1 select-all">
+              {emailSlug ? `${emailSlug}@tester.com.br` : "empresa@tester.com.br"}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => {
+              navigator.clipboard.writeText(emailSlug ? `${emailSlug}@tester.com.br` : "empresa@tester.com.br");
+              toast({ title: "Copiado!", description: "Endereço copiado para a área de transferência." });
+            }}>
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">Funciona com qualquer plataforma: ClickSign, DocuSign, Adobe Sign, email comum, etc.</p>
+        </div>
+      </section>
+
+      {/* Email OAuth */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4">Sincronizar caixa de email</h2>
+        <div className="border rounded-lg p-4 space-y-3">
+          <div className="flex gap-3">
+            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => toast({ title: "Em breve!", description: "Esta funcionalidade está sendo desenvolvida." })}>
+              Conectar Gmail
+            </Button>
+            <Button variant="outline" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => toast({ title: "Em breve!", description: "Esta funcionalidade está sendo desenvolvida." })}>
+              Conectar Outlook
+            </Button>
+          </div>
+          {emailConns.length > 0 && (
+            <div className="border rounded-lg overflow-hidden mt-3">
+              <table className="w-full text-sm">
+                <thead className="bg-secondary/50">
+                  <tr>
+                    <th className="text-left p-3 font-medium text-muted-foreground">E-mail</th>
+                    <th className="text-left p-3 font-medium text-muted-foreground">Provedor</th>
+                    <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+                    <th className="text-left p-3 font-medium text-muted-foreground">Última sync</th>
+                    <th className="p-3 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {emailConns.map((ec: any) => (
+                    <tr key={ec.id} className="border-t">
+                      <td className="p-3 text-foreground">{ec.email}</td>
+                      <td className="p-3 text-muted-foreground capitalize">{ec.provider}</td>
+                      <td className="p-3 text-muted-foreground">{ec.last_sync_status || "—"}</td>
+                      <td className="p-3 text-muted-foreground">{ec.last_sync_at ? new Date(ec.last_sync_at).toLocaleString("pt-BR") : "—"}</td>
+                      <td className="p-3">
+                        <button onClick={() => removeEmailConn(ec.id)} className="text-muted-foreground hover:text-destructive">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </section>
 

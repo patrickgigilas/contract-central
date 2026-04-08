@@ -6,6 +6,9 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+const EXTERNAL_SUPABASE_URL = "https://mwvbxojvmehbmmwhblta.supabase.co";
+const GENERIC_DOMAINS = ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "icloud.com"];
+
 export default function Login() {
   const [isSignup, setIsSignup] = useState(false);
   const [email, setEmail] = useState("");
@@ -13,6 +16,8 @@ export default function Login() {
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [domainWarning, setDomainWarning] = useState<string | null>(null);
+  const [signupBlocked, setSignupBlocked] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -35,19 +40,57 @@ export default function Login() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName, company_name: companyName },
-      },
-    });
-    setLoading(false);
-    if (error) {
-      toast({ title: "Erro", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Conta criada!", description: "Verifique seu e-mail para confirmar." });
-      navigate("/dashboard");
+    try {
+      const res = await fetch(`${EXTERNAL_SUPABASE_URL}/functions/v1/signup-with-company`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, full_name: fullName, company_name: companyName }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Erro", description: data.error || "Erro ao criar conta.", variant: "destructive" });
+        setLoading(false);
+        return;
+      }
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      setLoading(false);
+      if (error) {
+        toast({ title: "Erro", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: "Conta criada!", description: "Bem-vindo ao tester." });
+        navigate("/dashboard");
+      }
+    } catch {
+      setLoading(false);
+      toast({ title: "Erro", description: "Erro de conexão.", variant: "destructive" });
+    }
+  };
+
+  const handleEmailBlur = async () => {
+    if (!isSignup || !email.includes("@")) {
+      setDomainWarning(null);
+      setSignupBlocked(false);
+      return;
+    }
+    const domain = email.split("@")[1]?.toLowerCase();
+    if (!domain || GENERIC_DOMAINS.includes(domain)) {
+      setDomainWarning(null);
+      setSignupBlocked(false);
+      return;
+    }
+    try {
+      const { data } = await supabase.rpc("get_company_by_domain" as any, { p_email: email });
+      if (data && (Array.isArray(data) ? data.length > 0 : data)) {
+        const name = Array.isArray(data) ? data[0]?.name : (data as any)?.name;
+        setDomainWarning(`A empresa ${name || "encontrada"} já está cadastrada com este domínio. Peça ao administrador para te convidar, ou cadastre uma nova empresa.`);
+        setSignupBlocked(true);
+      } else {
+        setDomainWarning(null);
+        setSignupBlocked(false);
+      }
+    } catch {
+      setDomainWarning(null);
+      setSignupBlocked(false);
     }
   };
 
@@ -75,18 +118,31 @@ export default function Login() {
           )}
           <div className="space-y-2">
             <Label htmlFor="email">E-mail</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" required />
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={handleEmailBlur}
+              placeholder="seu@email.com"
+              required
+            />
           </div>
+          {domainWarning && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm text-yellow-800">
+              {domainWarning}
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="password">Senha</Label>
             <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} />
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button type="submit" className="w-full" disabled={loading || (isSignup && signupBlocked)}>
             {loading ? "Aguarde..." : isSignup ? "Criar conta" : "Entrar"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             {isSignup ? "Já tem conta?" : "Não tem conta?"}{" "}
-            <button type="button" onClick={() => setIsSignup(!isSignup)} className="text-primary hover:underline">
+            <button type="button" onClick={() => { setIsSignup(!isSignup); setDomainWarning(null); setSignupBlocked(false); }} className="text-primary hover:underline">
               {isSignup ? "Entrar" : "Criar conta"}
             </button>
           </p>

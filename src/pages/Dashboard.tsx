@@ -11,7 +11,7 @@ import {
   FileText, FolderOpen, Plus, Upload, Mail, Settings, CreditCard,
   LogOut, ChevronRight, Menu, Trash2, Eye, LayoutDashboard, Sparkles, Copy,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import type { Tables, Enums } from "@/integrations/supabase/types";

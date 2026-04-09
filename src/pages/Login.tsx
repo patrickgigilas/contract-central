@@ -43,7 +43,7 @@ export default function Login() {
     try {
       const res = await fetch(`${EXTERNAL_SUPABASE_URL}/functions/v1/signup-with-company`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im13dmJ4b2p2bWVoYm1td2hibHRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1MjI5NTcsImV4cCI6MjA5MTA5ODk1N30.h_znuGtiNd1rhzY7Ves8d1YTunLkXtc4kOszHP241z8" },
         body: JSON.stringify({ email, password, full_name: fullName, company_name: companyName }),
       });
       const data = await res.json();
